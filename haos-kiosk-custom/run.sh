@@ -86,41 +86,73 @@ udevadm settle --timeout=10 || true
 mkdir -p /etc/X11
 cat > /etc/X11/xorg.conf << 'EOF'
 Section "Device"
- Identifier "Card0"
- Driver "modesetting"
- Option "AccelMethod" "glamor"
+  Identifier "Card0"
+  Driver "modesetting"
+  Option "AccelMethod" "glamor"
+  # Option "kmsdev" "/dev/dri/card0" # Décommente si ça échoue encore
 EndSection
 
 Section "Screen"
- Identifier "Screen0"
- Device "Card0"
+  Identifier "Screen0"
+  Device "Card0"
+  DefaultDepth 24
 EndSection
 
 Section "ServerFlags"
- Option "DontVTSwitch" "true"
- Option "AllowMouseOpenFail" "true"
+  Option "DontVTSwitch" "true"
+  Option "AllowMouseOpenFail" "true"
+  Option "AutoAddGPU" "false"
+  # On empêche Xorg de chercher à gérer les terminaux physiques
+  Option "DontZap" "true"
+EndSection
+
+Section "ServerLayout"
+  Identifier "Layout0"
+  Option "AutoAddDevices" "true"
 EndSection
 EOF
 
 ################################################################################
+# Préparation des périphériques et nettoyage
+################################################################################
+bashio::log.info "Preparing environment for Xorg..."
+
+# Nettoyage radical des sockets et des verrous
+rm -rf /tmp/.X* /tmp/.X11-unix
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
+
+# Forcer les permissions sur les périphériques critiques
+# Cela aide énormément si le mode privilégié de Docker a des ratés
+chmod 666 /dev/tty0 || true
+chmod 666 /dev/fb0 || true
+chmod 666 /dev/dri/* || true
+chmod 666 /dev/input/* || true
+
+################################################################################
 # Start Xorg
+################################################################################
 bashio::log.info "Starting Xorg on DISPLAY=:0..."
-# Utilisation de -sharevts pour ne pas se battre avec la console HAOS
-Xorg :0 -nocursor -keeptty -sharevts -noreset -ignoreABI >/tmp/xorg.log 2>&1 &
+
+# On lance Xorg avec tous les drapeaux de contournement pour HAOS
+# -sharevts et -novtswitch empêchent le conflit avec la console de secours de HA
+Xorg :0 -nocursor -keeptty -sharevts -novtswitch -noreset -ignoreABI >/tmp/xorg.log 2>&1 &
 X_PID=$!
 
-# Wait for X socket
+# Attente du socket X11 (on est patient, 20 secondes max)
+bashio::log.info "Waiting for X server to initialize..."
 for _ in $(seq 1 40); do
   [ -S /tmp/.X11-unix/X0 ] && break
   sleep 0.5
 done
 
 if [ ! -S /tmp/.X11-unix/X0 ]; then
-  bashio::log.error "Xorg did not start. LOG CONTENT:"
+  bashio::log.error "Xorg failed to initialize. Here is the log content:"
   cat /tmp/xorg.log
   exit 1
 fi
 
+bashio::log.info "X server is up and running!"
 export DISPLAY=:0
 
 ################################################################################
