@@ -122,7 +122,7 @@ EOF
 ################################################################################
 # Start Xorg
 bashio::log.info "Starting Xorg on DISPLAY=:0..."
-Xorg :0 -nocursor -keeptty -ignoreABI </dev/null>/tmp/xorg.log 2>&1 &
+Xorg :0 -nocursor -keeptty -noreset -allowMouseOpenFail -ignoreABI </dev/null >/tmp/xorg.log 2>&1 &
 X_PID=$!
 
 # Wait for X socket
