@@ -199,9 +199,10 @@ else
 fi
 
 ################################################################################
-# Chromium
+# Chromium - Correction Taille et Clavier
 ################################################################################
-ZOOM_DPI=$(awk "BEGIN {printf \"%.2f\", $ZOOM_LEVEL / 100}")
+# On force le ratio à 1.0 pour éviter que Chromium ne zoome tout seul
+ZOOM_FACTOR=$(awk "BEGIN {printf \"%.2f\", $ZOOM_LEVEL / 100}")
 
 CHROME_FLAGS="\
  --no-sandbox \
@@ -211,26 +212,24 @@ CHROME_FLAGS="\
  --noerrdialogs \
  --disable-session-crashed-bubble \
  --disable-infobars \
- --force-device-scale-factor=$ZOOM_DPI \
- --window-size=${SCREEN_WIDTH},${SCREEN_HEIGHT} \
  --window-position=0,0 \
+ --window-size=${SCREEN_WIDTH},${SCREEN_HEIGHT} \
+ --force-device-scale-factor=${ZOOM_FACTOR} \
  --enable-virtual-keyboard \
  --touch-events=enabled \
  --ui-enable-touch-events \
  --disable-features=TranslateUI \
  --user-data-dir=/data/chromium-profile"
 
-[ "$DARK_MODE" = "true" ] && CHROME_FLAGS="$CHROME_FLAGS --force-dark-mode"
+# Supprimer les bordures potentielles de Window Manager
+if command -v xset &>/dev/null; then
+  xset s off -dpms || true
+fi
 
-FULL_URL="${HA_URL}"
-[ -n "$HA_DASHBOARD" ] && FULL_URL="${HA_URL}/${HA_DASHBOARD}"
+bashio::log.info "Launching Chromium at exact resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 
-bashio::log.info "Launching Chromium at ${SCREEN_WIDTH}x${SCREEN_HEIGHT}..."
 mkdir -p /data/chromium-profile
 chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
 CHROME_PID=$!
-
-bashio::log.info "Monitoring Chromium (PID: $CHROME_PID)..."
-wait "$CHROME_PID"
 bashio::log.info "Monitoring Chromium (PID: $CHROME_PID)..."
 wait "$CHROME_PID"
