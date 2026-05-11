@@ -12,6 +12,7 @@ ingress: true
 homeassistant_api: true
 auth_api: true
 apparmor: false
+udev: true
 privileged:
   - SYS_ADMIN
   - NET_ADMIN
