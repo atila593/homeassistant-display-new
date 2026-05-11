@@ -179,7 +179,16 @@ fi
 
 ################################################################################
 # Chromium
+################################################################################
+# Calcul du Zoom
 ZOOM_DPI=$(awk "BEGIN {printf \"%.2f\", $ZOOM_LEVEL / 100}")
+
+# Récupération de la résolution réelle via xrandr (détectée plus haut dans le script)
+# Si la détection a échoué, on met 1920x1080 par défaut
+[ -z "$SCREEN_WIDTH" ] && SCREEN_WIDTH=1920
+[ -z "$SCREEN_HEIGHT" ] && SCREEN_HEIGHT=1080
+
+bashio::log.info "Configuring Chromium for resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 
 CHROME_FLAGS="\
  --no-sandbox \
@@ -190,16 +199,25 @@ CHROME_FLAGS="\
  --disable-session-crashed-bubble \
  --disable-infobars \
  --force-device-scale-factor=$ZOOM_DPI \
- --window-size=1920,1080 \
+ --window-size=${SCREEN_WIDTH},${SCREEN_HEIGHT} \
+ --window-position=0,0 \
+ --enable-virtual-keyboard \
+ --touch-events=enabled \
+ --ui-enable-touch-events \
+ --disable-features=TranslateUI \
  --user-data-dir=/data/chromium-profile"
 
+# Ajout du mode sombre si activé
 [ "$DARK_MODE" = "true" ] && CHROME_FLAGS="$CHROME_FLAGS --force-dark-mode"
 
+# Construction de l'URL
 FULL_URL="${HA_URL}"
 [ -n "$HA_DASHBOARD" ] && FULL_URL="${HA_URL}/${HA_DASHBOARD}"
 
-bashio::log.info "Launching Chromium..."
+bashio::log.info "Launching Chromium → $FULL_URL"
+
 mkdir -p /data/chromium-profile
+# Lancement de Chromium
 chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
 CHROME_PID=$!
 
