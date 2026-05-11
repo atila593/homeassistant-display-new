@@ -59,6 +59,13 @@ map:
 
 privileged:
   - SYS_ADMIN
+  - NET_ADMIN
+full_access: true
+devices:
+  - /dev/dri:/dev/dri
+  - /dev/fb0:/dev/fb0
+  - /dev/input:/dev/input
+udev: true
 
 options:
   ha_url: "http://127.0.0.1:8123"
