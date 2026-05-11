@@ -29,7 +29,6 @@ RUN apk update && apk add --no-cache \
   jq \
   sed \
   grep \
-  awk \
   coreutils \
   findutils \
   && rm -rf /tmp/* /var/cache/apk/*
