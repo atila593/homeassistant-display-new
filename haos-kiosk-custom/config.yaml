@@ -1,0 +1,108 @@
+---
+name: "homeassistant-display"
+description: |
+  Display Home Assistant dashboards in kiosk mode directly on your HAOS server.
+  Chromium-based kiosk add-on with REST controls and optional on-screen keyboard.
+version: "1.0.0"
+slug: "homeassistant-display"
+
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+startup: application
+host_network: true
+init: false
+ingress: true
+homeassistant_api: true
+auth_api: true
+
+devices:
+  - /dev/dri
+  - /dev
+  - /dev/fb0
+  - /dev/dri/card0
+  - /dev/dri/card1
+  - /dev/dri/renderD128
+  - /dev/input/event0
+  - /dev/input/event1
+  - /dev/input/event2
+  - /dev/input/event3
+  - /dev/input/event4
+  - /dev/input/event5
+  - /dev/input/event6
+  - /dev/input/event7
+  - /dev/input/event8
+  - /dev/input/event9
+  - /dev/input/event10
+  - /dev/input/event11
+  - /dev/input/event12
+  - /dev/input/event13
+  - /dev/input/event14
+  - /dev/input/event15
+  - /dev/input/event16
+  - /dev/input/event17
+  - /dev/input/event18
+  - /dev/input/event19
+  - /dev/input/event20
+  - /dev/input/event21
+  - /dev/input/event22
+  - /dev/input/event23
+  - /dev/input/event24
+  - /dev/input/event25
+
+map:
+  - addon_config:rw
+
+privileged:
+  - SYS_ADMIN
+
+options:
+  ha_url: "http://127.0.0.1:8123"
+  ha_dashboard: ""
+  login_delay: 8.0
+  zoom_level: 100
+  browser_refresh: 600
+  screen_timeout: 0
+  output_number: 1
+  dark_mode: true
+  ha_sidebar: "none"
+  rotate_display: "normal"
+  map_touch_inputs: true
+  cursor_timeout: 5
+  keyboard_layout: us
+  onscreen_keyboard_mode: "off" # off|manual|always
+  rest_port: 8080
+  rest_bearer_token: ""
+  debug_mode: false
+
+schema:
+  ha_username: str?
+  ha_password: password?
+  ha_url: str
+  ha_dashboard: str?
+  login_delay: float(0,)
+  zoom_level: int(10,1000)
+  browser_refresh: int(0,)
+  screen_timeout: int(0,)
+  output_number: int(1,2)
+  dark_mode: bool
+  ha_sidebar: list(full|narrow|none)
+  rotate_display: list(normal|left|right|inverted)
+  map_touch_inputs: bool
+  cursor_timeout: int
+  keyboard_layout: str
+  onscreen_keyboard_mode: list(off|manual|always)
+  rest_port: int(1024,49151)
+  rest_bearer_token: password
+  debug_mode: bool
+
+translations:
+  - en
+
+environment:
+  DISPLAY: ":0"
+
