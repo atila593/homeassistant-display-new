@@ -161,16 +161,37 @@ openbox &
 sleep 1
 
 ################################################################################
-# Outputs & Rotation
+# Outputs & Resolution Detection
+################################################################################
+# On récupère les sorties connectées
 readarray -t OUTPUTS < <(xrandr --query | awk '/ connected/ {print $1}')
+
 if [ ${#OUTPUTS[@]} -eq 0 ]; then
-  bashio::log.error "No connected outputs detected."
-  # On ne quitte pas forcément, xrandr peut mentir au début
+  bashio::log.warn "No connected outputs detected by xrandr, using default HDMI-1"
+  OUTPUT_NAME="HDMI-1"
+else
+  OUTPUT_NAME="${OUTPUTS[$((OUTPUT_NUMBER - 1))]:-${OUTPUTS[0]}}"
 fi
 
-OUTPUT_NAME="${OUTPUTS[$((OUTPUT_NUMBER - 1))]:-HDMI-1}"
 bashio::log.info "Target output: $OUTPUT_NAME"
 
+# --- FIX: Détection de la résolution avec valeurs par défaut ---
+# On essaie de lire la résolution, sinon on force 1920x1080 pour éviter le crash
+RAW_RES=$(xrandr --query | grep "^$OUTPUT_NAME connected" | grep -oP '\d+x\d+\+' | head -1 | tr -d '+')
+
+if [ -n "$RAW_RES" ]; then
+    SCREEN_WIDTH=$(echo "$RAW_RES" | cut -d'x' -f1)
+    SCREEN_HEIGHT=$(echo "$RAW_RES" | cut -d'x' -f2)
+else
+    bashio::log.warn "Could not detect resolution, defaulting to 1920x1080"
+    SCREEN_WIDTH=1920
+    SCREEN_HEIGHT=1080
+fi
+
+export SCREEN_WIDTH
+export SCREEN_HEIGHT
+
+# Application de la rotation/auto
 if [ "$ROTATE_DISPLAY" = "normal" ]; then
   xrandr --output "$OUTPUT_NAME" --auto || true
 else
@@ -180,15 +201,7 @@ fi
 ################################################################################
 # Chromium
 ################################################################################
-# Calcul du Zoom
 ZOOM_DPI=$(awk "BEGIN {printf \"%.2f\", $ZOOM_LEVEL / 100}")
-
-# Récupération de la résolution réelle via xrandr (détectée plus haut dans le script)
-# Si la détection a échoué, on met 1920x1080 par défaut
-[ -z "$SCREEN_WIDTH" ] && SCREEN_WIDTH=1920
-[ -z "$SCREEN_HEIGHT" ] && SCREEN_HEIGHT=1080
-
-bashio::log.info "Configuring Chromium for resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 
 CHROME_FLAGS="\
  --no-sandbox \
@@ -207,19 +220,17 @@ CHROME_FLAGS="\
  --disable-features=TranslateUI \
  --user-data-dir=/data/chromium-profile"
 
-# Ajout du mode sombre si activé
 [ "$DARK_MODE" = "true" ] && CHROME_FLAGS="$CHROME_FLAGS --force-dark-mode"
 
-# Construction de l'URL
 FULL_URL="${HA_URL}"
 [ -n "$HA_DASHBOARD" ] && FULL_URL="${HA_URL}/${HA_DASHBOARD}"
 
-bashio::log.info "Launching Chromium → $FULL_URL"
-
+bashio::log.info "Launching Chromium at ${SCREEN_WIDTH}x${SCREEN_HEIGHT}..."
 mkdir -p /data/chromium-profile
-# Lancement de Chromium
 chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
 CHROME_PID=$!
 
+bashio::log.info "Monitoring Chromium (PID: $CHROME_PID)..."
+wait "$CHROME_PID"
 bashio::log.info "Monitoring Chromium (PID: $CHROME_PID)..."
 wait "$CHROME_PID"
