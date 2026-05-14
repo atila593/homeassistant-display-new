@@ -221,15 +221,63 @@ CHROME_FLAGS="\
  --disable-features=TranslateUI \
  --user-data-dir=/data/chromium-profile"
 
-# Supprimer les bordures potentielles de Window Manager
+# --- GESTION DE LA VEILLE ET DU SIGNAL ---
 if command -v xset &>/dev/null; then
-  xset s off -dpms || true
+  bashio::log.info "Disabling DPMS and screen blanking..."
+  xset s off
+  xset -dpms
+  xset s noblank
+fi
+
+# --- CONSTRUCTION DE L'URL ---
+# Si HA_DASHBOARD est vide, on utilise l'URL de base, sinon on concatène
+if [ -z "$HA_DASHBOARD" ]; then
+  FULL_URL="$HA_URL"
+else
+  FULL_URL="${HA_URL}/${HA_DASHBOARD}"
 fi
 
 bashio::log.info "Launching Chromium at exact resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
+bashio::log.info "URL: $FULL_URL"
 
 mkdir -p /data/chromium-profile
 chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
 CHROME_PID=$!
-bashio::log.info "Monitoring Chromium (PID: $CHROME_PID)..."
+
+# ###############################################################################
+# BOUCLE DE MAINTENANCE (Refresh + Anti-veille)
+# ###############################################################################
+(
+  # On attend un peu que Chromium soit bien chargé
+  sleep 20
+  
+  while true; do
+    # 1. Force l'anti-veille (au cas où HAOS essaie de reprendre la main)
+    xset s off -dpms 2>/dev/null
+    
+    # 2. Gestion du rafraîchissement automatique
+    if [ "$BROWSER_REFRESH" -gt 0 ]; then
+      bashio::log.info "Maintenance: Auto-refreshing browser (Interval: ${BROWSER_REFRESH}s)"
+      
+      # On cherche la fenêtre de Chromium
+      WINDOW=$(xdotool search --class chromium | head -1)
+      if [ -n "$WINDOW" ]; then
+        xdotool key --window "$WINDOW" ctrl+r
+      else
+        bashio::log.warn "Maintenance: Chromium window not found for refresh"
+      fi
+      
+      sleep "$BROWSER_REFRESH"
+    else
+      # Si pas de refresh, on check quand même la veille toutes les minutes
+      sleep 60
+    fi
+  done
+) &
+MAINTENANCE_PID=$!
+
+bashio::log.info "Monitoring Chromium (PID: $CHROME_PID) and Maintenance (PID: $MAINTENANCE_PID)..."
+
+# Si Chromium s'arrête, on tue aussi la boucle de maintenance
 wait "$CHROME_PID"
+kill "$MAINTENANCE_PID" 2>/dev/null || true
