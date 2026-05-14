@@ -163,7 +163,6 @@ sleep 1
 ################################################################################
 # Outputs & Resolution Detection
 ################################################################################
-# On récupère les sorties connectées
 readarray -t OUTPUTS < <(xrandr --query | awk '/ connected/ {print $1}')
 
 if [ ${#OUTPUTS[@]} -eq 0 ]; then
@@ -175,8 +174,6 @@ fi
 
 bashio::log.info "Target output: $OUTPUT_NAME"
 
-# --- FIX: Détection de la résolution avec valeurs par défaut ---
-# On essaie de lire la résolution, sinon on force 1920x1080 pour éviter le crash
 RAW_RES=$(xrandr --query | grep "^$OUTPUT_NAME connected" | grep -oP '\d+x\d+\+' | head -1 | tr -d '+')
 
 if [ -n "$RAW_RES" ]; then
@@ -191,7 +188,6 @@ fi
 export SCREEN_WIDTH
 export SCREEN_HEIGHT
 
-# Application de la rotation/auto
 if [ "$ROTATE_DISPLAY" = "normal" ]; then
   xrandr --output "$OUTPUT_NAME" --auto || true
 else
@@ -199,9 +195,8 @@ else
 fi
 
 ################################################################################
-# Chromium - Correction Taille et Clavier
+# Chromium Configuration
 ################################################################################
-# On force le ratio à 1.0 pour éviter que Chromium ne zoome tout seul
 ZOOM_FACTOR=$(awk "BEGIN {printf \"%.2f\", $ZOOM_LEVEL / 100}")
 
 CHROME_FLAGS="\
@@ -221,7 +216,7 @@ CHROME_FLAGS="\
  --disable-features=TranslateUI \
  --user-data-dir=/data/chromium-profile"
 
-# --- GESTION DE LA VEILLE ET DU SIGNAL ---
+# --- GESTION DE LA VEILLE ---
 if command -v xset &>/dev/null; then
   bashio::log.info "Disabling DPMS and screen blanking..."
   xset s off
@@ -229,47 +224,45 @@ if command -v xset &>/dev/null; then
   xset s noblank
 fi
 
-# --- CONSTRUCTION DE L'URL ---
-# Si HA_DASHBOARD est vide, on utilise l'URL de base, sinon on concatène
+# --- CONSTRUCTION DE L'URL (Propre) ---
+HA_URL_STRIP="${HA_URL%/}"
 if [ -z "$HA_DASHBOARD" ]; then
-  FULL_URL="$HA_URL"
+  FULL_URL="$HA_URL_STRIP"
 else
-  FULL_URL="${HA_URL}/${HA_DASHBOARD}"
+  DASH_STRIP="${HA_DASHBOARD#/}"
+  FULL_URL="${HA_URL_STRIP}/${DASH_STRIP}"
 fi
 
-bashio::log.info "Launching Chromium at exact resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
+bashio::log.info "Launching Chromium at ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 bashio::log.info "URL: $FULL_URL"
 
 mkdir -p /data/chromium-profile
 chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
 CHROME_PID=$!
 
-# ###############################################################################
+################################################################################
 # BOUCLE DE MAINTENANCE (Refresh + Anti-veille)
-# ###############################################################################
+################################################################################
 (
-  # On attend un peu que Chromium soit bien chargé
+  # Attente initiale pour le chargement
   sleep 20
   
   while true; do
-    # 1. Force l'anti-veille (au cas où HAOS essaie de reprendre la main)
+    # 1. Force l'anti-veille répétitivement
     xset s off -dpms 2>/dev/null
     
-    # 2. Gestion du rafraîchissement automatique
+    # 2. Rafraîchissement automatique
     if [ "$BROWSER_REFRESH" -gt 0 ]; then
-      bashio::log.info "Maintenance: Auto-refreshing browser (Interval: ${BROWSER_REFRESH}s)"
+      sleep "$BROWSER_REFRESH"
+      bashio::log.info "Maintenance: Auto-refreshing browser..."
       
-      # On cherche la fenêtre de Chromium
       WINDOW=$(xdotool search --class chromium | head -1)
       if [ -n "$WINDOW" ]; then
         xdotool key --window "$WINDOW" ctrl+r
       else
         bashio::log.warn "Maintenance: Chromium window not found for refresh"
       fi
-      
-      sleep "$BROWSER_REFRESH"
     else
-      # Si pas de refresh, on check quand même la veille toutes les minutes
       sleep 60
     fi
   done
@@ -278,6 +271,7 @@ MAINTENANCE_PID=$!
 
 bashio::log.info "Monitoring Chromium (PID: $CHROME_PID) and Maintenance (PID: $MAINTENANCE_PID)..."
 
-# Si Chromium s'arrête, on tue aussi la boucle de maintenance
+# Attente de la fin de Chromium
 wait "$CHROME_PID"
 kill "$MAINTENANCE_PID" 2>/dev/null || true
+bashio::log.info "Add-on exited."
