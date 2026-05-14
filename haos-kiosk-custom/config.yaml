@@ -1,6 +1,6 @@
 name: "homeassistant-display"
 description: "Display Home Assistant dashboards in kiosk mode directly on your HAOS server."
-version: "1.0.1"
+version: "1.0.2"
 slug: "homeassistant-display"
 arch:
   - aarch64
