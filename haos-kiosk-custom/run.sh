@@ -1,6 +1,6 @@
 #!/usr/bin/with-contenv bashio
 # shellcheck shell=bash
-VERSION="1.0.0"
+VERSION="1.1.0-gpu"
 
 printf '%*s\n' 80 '' | tr ' ' '#'
 bashio::log.info "######## Starting Home Assistant Display (Chromium) ########"
@@ -76,7 +76,7 @@ DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address || true)
 export DBUS_SESSION_BUS_ADDRESS
 
 ################################################################################
-# udev (On ne lance pas udevd car HAOS avec udev:true le fait déjà)
+# udev
 bashio::log.info "Settling udev devices..."
 udevadm trigger || true
 udevadm settle --timeout=10 || true
@@ -89,7 +89,6 @@ Section "Device"
   Identifier "Card0"
   Driver "modesetting"
   Option "AccelMethod" "glamor"
-  # Option "kmsdev" "/dev/dri/card0" # Décommente si ça échoue encore
 EndSection
 
 Section "Screen"
@@ -102,7 +101,6 @@ Section "ServerFlags"
   Option "DontVTSwitch" "true"
   Option "AllowMouseOpenFail" "true"
   Option "AutoAddGPU" "false"
-  # On empêche Xorg de chercher à gérer les terminaux physiques
   Option "DontZap" "true"
 EndSection
 
@@ -113,17 +111,14 @@ EndSection
 EOF
 
 ################################################################################
-# Préparation des périphériques et nettoyage
+# Préparation des périphériques
 ################################################################################
 bashio::log.info "Preparing environment for Xorg..."
 
-# Nettoyage radical des sockets et des verrous
 rm -rf /tmp/.X* /tmp/.X11-unix
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
 
-# Forcer les permissions sur les périphériques critiques
-# Cela aide énormément si le mode privilégié de Docker a des ratés
 chmod 666 /dev/tty0 || true
 chmod 666 /dev/fb0 || true
 chmod 666 /dev/dri/* || true
@@ -134,12 +129,9 @@ chmod 666 /dev/input/* || true
 ################################################################################
 bashio::log.info "Starting Xorg on DISPLAY=:0..."
 
-# On lance Xorg avec tous les drapeaux de contournement pour HAOS
-# -sharevts et -novtswitch empêchent le conflit avec la console de secours de HA
 Xorg :0 -nocursor -keeptty -sharevts -novtswitch -noreset -ignoreABI >/tmp/xorg.log 2>&1 &
 X_PID=$!
 
-# Attente du socket X11 (on est patient, 20 secondes max)
 bashio::log.info "Waiting for X server to initialize..."
 for _ in $(seq 1 40); do
   [ -S /tmp/.X11-unix/X0 ] && break
@@ -213,8 +205,16 @@ CHROME_FLAGS="\
  --enable-virtual-keyboard \
  --touch-events=enabled \
  --ui-enable-touch-events \
- --disable-features=TranslateUI \
- --user-data-dir=/data/chromium-profile"
+ --disable-features=TranslateUI,UseChromeOSDirectVideoDecoder \
+ --user-data-dir=/data/chromium-profile \
+ --use-gl=egl \
+ --enable-gpu-rasterization \
+ --enable-zero-copy \
+ --ignore-gpu-blocklist \
+ --enable-accelerated-video-decode \
+ --enable-features=VaapiVideoDecoder \
+ --disable-dev-shm-usage \
+ --renderer-process-limit=3"
 
 # --- GESTION DE LA VEILLE ---
 if command -v xset &>/dev/null; then
@@ -224,7 +224,7 @@ if command -v xset &>/dev/null; then
   xset s noblank
 fi
 
-# --- CONSTRUCTION DE L'URL (Propre) ---
+# --- CONSTRUCTION DE L'URL ---
 HA_URL_STRIP="${HA_URL%/}"
 if [ -z "$HA_DASHBOARD" ]; then
   FULL_URL="$HA_URL_STRIP"
@@ -237,25 +237,17 @@ bashio::log.info "Launching Chromium at ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 bashio::log.info "URL: $FULL_URL"
 
 mkdir -p /data/chromium-profile
-chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
-CHROME_PID=$!
 
 ################################################################################
 # BOUCLE DE MAINTENANCE (Refresh + Anti-veille)
 ################################################################################
 (
-  # Attente initiale pour le chargement
   sleep 20
-  
   while true; do
-    # 1. Force l'anti-veille répétitivement
     xset s off -dpms 2>/dev/null
-    
-    # 2. Rafraîchissement automatique
     if [ "$BROWSER_REFRESH" -gt 0 ]; then
       sleep "$BROWSER_REFRESH"
       bashio::log.info "Maintenance: Auto-refreshing browser..."
-      
       WINDOW=$(xdotool search --class chromium | head -1)
       if [ -n "$WINDOW" ]; then
         xdotool key --window "$WINDOW" ctrl+r
@@ -269,9 +261,37 @@ CHROME_PID=$!
 ) &
 MAINTENANCE_PID=$!
 
-bashio::log.info "Monitoring Chromium (PID: $CHROME_PID) and Maintenance (PID: $MAINTENANCE_PID)..."
+################################################################################
+# BOUCLE PRINCIPALE — Restart Chromium sans toucher à Xorg
+################################################################################
+bashio::log.info "Starting Chromium watchdog loop..."
 
-# Attente de la fin de Chromium
-wait "$CHROME_PID"
+CRASH_COUNT=0
+
+while true; do
+  bashio::log.info "Starting Chromium (attempt $((CRASH_COUNT + 1)))..."
+  chromium $CHROME_FLAGS "$FULL_URL" >/tmp/chromium.log 2>&1 &
+  CHROME_PID=$!
+  bashio::log.info "Chromium launched (PID: $CHROME_PID)"
+
+  wait "$CHROME_PID"
+  EXIT_CODE=$?
+  CRASH_COUNT=$((CRASH_COUNT + 1))
+
+  bashio::log.warn "Chromium exited (code=$EXIT_CODE, crash #$CRASH_COUNT). Restarting in 5s..."
+
+  # Nettoyage du profil si crash répété (corrompu)
+  if [ "$CRASH_COUNT" -ge 3 ]; then
+    bashio::log.warn "3 crashes detected — clearing Chromium profile cache..."
+    rm -rf /data/chromium-profile/Default/Cache
+    rm -rf /data/chromium-profile/Default/GPUCache
+    rm -f /data/chromium-profile/Default/Preferences
+    CRASH_COUNT=0
+  fi
+
+  sleep 5
+done
+
 kill "$MAINTENANCE_PID" 2>/dev/null || true
 bashio::log.info "Add-on exited."
+
