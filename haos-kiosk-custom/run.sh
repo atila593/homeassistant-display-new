@@ -214,8 +214,8 @@ CHROME_FLAGS="\
  --enable-accelerated-video-decode \
  --enable-features=VaapiVideoDecoder \
  --disable-dev-shm-usage \
- --renderer-process-limit=3"
- --overscroll-history-navigation=1 \
+ --renderer-process-limit=3 \
+ --overscroll-history-navigation=1"
 
 # --- GESTION DE LA VEILLE ---
 if command -v xset &>/dev/null; then
